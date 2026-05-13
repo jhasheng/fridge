@@ -60,10 +60,42 @@ The raw `frida` crate is faithful to frida-core, which means:
 - Normalizes script events into an `Event` enum: any `send()` from JS lands
   in `Event::Send { payload: Value }` regardless of the inner shape.
 
-> **Note:** the workspace this lives in vendors a patched copy of `frida`
-> 0.17.2 to fix frida-rust#189 (the `ScriptHandler` UB). Until upstream
-> ships the fix, downstream users have to wire the same `[patch.crates-io]`
-> in their workspace root. See `../vendor/frida/PATCHES.md`.
+## ⚠️ Setup — required patch
+
+`fridge`'s `frida` dep on crates.io is **0.17.2 with unfixed UB**
+([frida-rust#189](https://github.com/frida/frida-rust/issues/189)). This
+crate's own build redirects to a [patched fork](https://github.com/jhasheng/frida-rust/tree/fridge-fixes)
+via `[patch.crates-io]`, but **that redirect only applies to the workspace
+root being built** — downstream consumers have to add the same redirect in
+their own workspace root, otherwise `Arc<Mutex<_>>` handlers read garbage
+memory and `script.load()` deadlocks on synchronous `send()`.
+
+In your project's **workspace root** `Cargo.toml`:
+
+```toml
+[dependencies]
+fridge = "0.1"
+
+[patch.crates-io]
+frida = { git = "https://github.com/jhasheng/frida-rust.git", rev = "6a92b72" }
+```
+
+The pinned `frida-rust` rev carries two extra commits on top of 0.17.2:
+
+1. The fix for frida-rust#189 (ScriptHandler `user_data` UB).
+2. `Session::compile_script` + `Session::create_script_from_bytes`
+   (bytecode loading — fridge depends on both).
+
+Once these patches land upstream and a new `frida` release ships, this
+`[patch]` block goes away and `fridge = "0.1"` works standalone.
+
+If you'd rather skip the patch line, depend on `fridge` via git instead —
+the redirect is baked into this repo's own `Cargo.toml`:
+
+```toml
+[dependencies]
+fridge = { git = "https://github.com/jhasheng/fridge.git" }
+```
 
 ## Targets
 
