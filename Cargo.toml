@@ -21,7 +21,12 @@ default = ["auto-download"]
 auto-download = ["frida/auto-download"]
 
 [dependencies]
-frida = { version = "0.17", default-features = false }
+# Pulled directly from the jhasheng/frida-rust fork. That fork carries:
+#   1. The fix for frida-rust#189 (ScriptHandler user_data UB).
+#   2. Session::compile_script + Session::create_script_from_bytes.
+# Consumers therefore do NOT need a [patch.crates-io] entry of their own —
+# fridge resolves frida transitively to the fork already.
+frida = { git = "https://github.com/jhasheng/frida-rust.git", rev = "6a92b72", default-features = false }
 
 # Error plumbing
 thiserror = "1"
@@ -52,11 +57,3 @@ opt-level = 3
 lto       = "thin"
 strip     = true
 
-# Pin `frida` to a commit on the jhasheng/frida-rust fork that carries:
-#   1. The fix for frida-rust#189 (ScriptHandler user_data UB).
-#   2. `Session::compile_script` + `Session::create_script_from_bytes`.
-#
-# Once upstream merges & releases these, drop this block and bump the
-# crates.io version in [dependencies] instead.
-[patch.crates-io]
-frida = { git = "https://github.com/jhasheng/frida-rust.git", rev = "6a92b72" }
