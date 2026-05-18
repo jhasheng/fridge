@@ -15,8 +15,10 @@
 
 use std::sync::{mpsc, Arc, Mutex};
 
+use std::collections::HashSet;
+
 use frida::{
-    Device, DeviceManager, DeviceType, Frida, ScriptHandler, ScriptOption, SpawnOptions,
+    Device, DeviceManager, DeviceType, Frida, Scope, ScriptHandler, ScriptOption, SpawnOptions,
 };
 
 use crate::builder::{CaptureConfig, ScriptInput};
@@ -122,6 +124,33 @@ fn resolve_target(device: &mut Device, t: &Target) -> Result<(u32, bool)> {
                 }
             }
             Err(Error::ProcessNotFound(name.clone()))
+        }
+        Target::MainByName(name) => {
+            // Need parameters (ppid) — Scope::Full populates them.
+            let processes = device.enumerate_processes_with_options(Scope::Full);
+            let needle_lc = name.to_ascii_lowercase();
+            let matches: Vec<_> = processes
+                .iter()
+                .filter(|p| {
+                    let pname = p.get_name();
+                    pname == name.as_str() || pname.to_ascii_lowercase() == needle_lc
+                })
+                .collect();
+            if matches.is_empty() {
+                return Err(Error::ProcessNotFound(name.clone()));
+            }
+            let same_name_pids: HashSet<u32> = matches.iter().map(|p| p.get_pid()).collect();
+            let main = matches.iter().find(|p| {
+                p.get_parameters()
+                    .get("ppid")
+                    .and_then(|v| v.get_int())
+                    .map(|ppid| !same_name_pids.contains(&(ppid as u32)))
+                    .unwrap_or(false)
+            });
+            match main {
+                Some(p) => Ok((p.get_pid(), false)),
+                None => Err(Error::ProcessNotFound(name.clone())),
+            }
         }
         Target::Spawn { program, args } => {
             let argv: Vec<&str> = args.iter().map(String::as_str).collect();

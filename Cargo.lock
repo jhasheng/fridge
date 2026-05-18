@@ -164,7 +164,7 @@ dependencies = [
 [[package]]
 name = "frida"
 version = "0.17.2"
-source = "git+https://github.com/jhasheng/frida-rust.git?rev=6a92b72#6a92b72526a3c8a5dbcd0a705370bab0990c1179"
+source = "git+https://github.com/jhasheng/frida-rust.git?branch=dev#87fb4b37b2f6902eab3f38d1e873fc40b5013327"
 dependencies = [
  "frida-sys",
  "serde",
@@ -175,7 +175,7 @@ dependencies = [
 [[package]]
 name = "frida-build"
 version = "0.17.2"
-source = "git+https://github.com/jhasheng/frida-rust.git?rev=6a92b72#6a92b72526a3c8a5dbcd0a705370bab0990c1179"
+source = "git+https://github.com/jhasheng/frida-rust.git?branch=dev#87fb4b37b2f6902eab3f38d1e873fc40b5013327"
 dependencies = [
  "reqwest",
  "tar",
@@ -185,7 +185,7 @@ dependencies = [
 [[package]]
 name = "frida-sys"
 version = "0.17.2"
-source = "git+https://github.com/jhasheng/frida-rust.git?rev=6a92b72#6a92b72526a3c8a5dbcd0a705370bab0990c1179"
+source = "git+https://github.com/jhasheng/frida-rust.git?branch=dev#87fb4b37b2f6902eab3f38d1e873fc40b5013327"
 dependencies = [
  "bindgen",
  "frida-build",

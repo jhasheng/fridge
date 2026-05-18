@@ -21,12 +21,13 @@ default = ["auto-download"]
 auto-download = ["frida/auto-download"]
 
 [dependencies]
-# Pulled directly from the jhasheng/frida-rust fork. That fork carries:
+# Pulled directly from the jhasheng/frida-rust fork's `dev` branch. That fork carries:
 #   1. The fix for frida-rust#189 (ScriptHandler user_data UB).
 #   2. Session::compile_script + Session::create_script_from_bytes.
+#   3. Scope::Full + Process::get_parameters (used by Target::MainByName).
 # Consumers therefore do NOT need a [patch.crates-io] entry of their own —
 # fridge resolves frida transitively to the fork already.
-frida = { git = "https://github.com/jhasheng/frida-rust.git", rev = "6a92b72", default-features = false }
+frida = { git = "https://github.com/jhasheng/frida-rust.git", branch = "dev", default-features = false }
 
 # Error plumbing
 thiserror = "1"
