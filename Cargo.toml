@@ -64,7 +64,10 @@ clap = { version = "4", features = ["derive"], optional = true }
 
 # Ctrl+C handling for `fridge attach` — let the user stop the capture
 # without killing the process and losing the in-flight recording flush.
-ctrlc = { version = "3", optional = true }
+# `termination` feature also catches SIGTERM (Unix) and Ctrl+Break
+# (Windows) — important so a containerized `fridge` recorder cleanly
+# flushes when its orchestrator stops it.
+ctrlc = { version = "3", features = ["termination"], optional = true }
 
 [dev-dependencies]
 # `inspect` example
