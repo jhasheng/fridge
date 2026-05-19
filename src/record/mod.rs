@@ -28,10 +28,14 @@
 //! All three are re-exported here, so `use fridge::record::Writer` /
 //! `use fridge::record::read_all` work without naming the sub-module.
 
+mod events;
 mod listing;
 mod reader;
 mod writer;
 
+pub use events::{
+    create_event_writer, read_all_events, read_event_iter, EventReadIter, EventWriter,
+};
 pub use listing::{list_captures, timestamped_path, CaptureFile};
 pub use reader::{read_all, read_all_with_progress, read_iter, ReadIter};
 pub use writer::Writer;
