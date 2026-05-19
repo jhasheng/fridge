@@ -46,6 +46,9 @@ mod handler;
 mod target;
 mod worker;
 
+#[cfg(feature = "record")]
+pub mod record;
+
 pub use builder::{Capture, CaptureBuilder};
 pub use error::{Error, Result};
 pub use event::{Event, LogLevel};

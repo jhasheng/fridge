@@ -32,6 +32,12 @@ pub enum Error {
     /// Anything the underlying `frida` crate raised.
     #[error("frida: {0}")]
     Frida(String),
+
+    /// Capture I/O or framing error from the `record` module. Boxed as
+    /// a `String` so the public enum doesn't leak `io::Error` /
+    /// `bincode::error::*` types.
+    #[error("record: {0}")]
+    Record(String),
 }
 
 impl From<frida::Error> for Error {

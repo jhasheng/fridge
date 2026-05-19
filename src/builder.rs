@@ -4,6 +4,7 @@
 //! file only owns the user-facing config + the `start()` plumbing that hands
 //! the config to a worker and returns a `CaptureHandle`.
 
+use std::path::Path;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -88,6 +89,28 @@ impl CaptureBuilder {
         self
     }
 
+    /// Read a script from disk and dispatch by extension: `.js` → source
+    /// string (UTF-8 required), everything else → bytecode bytes. The
+    /// "everything else" branch covers `.bin`, `.qjsc`, and any other
+    /// extension a frida-compile downstream might pick; the only stable
+    /// rule is "is it `.js` or not".
+    ///
+    /// Mutually exclusive with [`script`](Self::script) and
+    /// [`script_bytes`](Self::script_bytes); the last one set wins.
+    pub fn script_from_disk<P: AsRef<Path>>(self, path: P) -> Result<Self> {
+        let p = path.as_ref();
+        let bytes = std::fs::read(p)
+            .map_err(|e| Error::Frida(format!("read script {}: {e}", p.display())))?;
+        Ok(if p.extension().and_then(|e| e.to_str()) == Some("js") {
+            let src = String::from_utf8(bytes).map_err(|e| {
+                Error::Frida(format!("script {} is not valid utf-8: {e}", p.display()))
+            })?;
+            self.script(src)
+        } else {
+            self.script_bytes(bytes)
+        })
+    }
+
     /// When the target was spawned (vs. attached to a running process), should
     /// the worker call `device.resume(pid)` after the script loads? Default `true`.
     pub fn resume_after_spawn(mut self, b: bool) -> Self {
@@ -127,6 +150,11 @@ impl CaptureBuilder {
     pub fn start<H: Handler>(self, handler: H) -> Result<CaptureHandle> {
         self.build()?.start(handler)
     }
+
+    #[cfg(test)]
+    pub(crate) fn script_input(&self) -> Option<&ScriptInput> {
+        self.script.as_ref()
+    }
 }
 
 impl Capture {
@@ -155,5 +183,84 @@ impl Capture {
         };
 
         Ok(CaptureHandle::new(worker, stop_tx, pid))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn script_from_disk_js_loads_as_source() {
+        let tmp = tempdir().unwrap();
+        let p = tmp.path().join("hook.js");
+        std::fs::write(&p, b"console.log('hi');").unwrap();
+        let b = Capture::builder().script_from_disk(&p).unwrap();
+        match b.script_input().unwrap() {
+            ScriptInput::Source(s) => assert_eq!(s, "console.log('hi');"),
+            ScriptInput::Bytes(_) => panic!(".js should land as Source"),
+        }
+    }
+
+    #[test]
+    fn script_from_disk_bin_loads_as_bytes() {
+        let tmp = tempdir().unwrap();
+        let p = tmp.path().join("hook.bin");
+        // Non-UTF-8 bytes — would fail the .js path's String::from_utf8 check.
+        let payload: Vec<u8> = vec![0xDE, 0xAD, 0xBE, 0xEF, 0xFF];
+        std::fs::write(&p, &payload).unwrap();
+        let b = Capture::builder().script_from_disk(&p).unwrap();
+        match b.script_input().unwrap() {
+            ScriptInput::Bytes(bs) => assert_eq!(bs, &payload),
+            ScriptInput::Source(_) => panic!(".bin should land as Bytes"),
+        }
+    }
+
+    #[test]
+    fn script_from_disk_qjsc_also_loads_as_bytes() {
+        // Anything not `.js` → bytes. Covers `.bin`, `.qjsc`, no-extension.
+        let tmp = tempdir().unwrap();
+        let p = tmp.path().join("hook.qjsc");
+        std::fs::write(&p, b"\x01\x02\x03").unwrap();
+        let b = Capture::builder().script_from_disk(&p).unwrap();
+        assert!(matches!(b.script_input(), Some(ScriptInput::Bytes(_))));
+    }
+
+    #[test]
+    fn script_from_disk_missing_file_errors() {
+        let tmp = tempdir().unwrap();
+        let p = tmp.path().join("nope.js");
+        let Err(e) = Capture::builder().script_from_disk(&p) else {
+            panic!("expected read failure");
+        };
+        assert!(format!("{e}").contains("read script"));
+    }
+
+    #[test]
+    fn script_from_disk_invalid_utf8_js_errors() {
+        let tmp = tempdir().unwrap();
+        let p = tmp.path().join("bad.js");
+        // 0xFF is never valid utf-8.
+        std::fs::write(&p, [b'l', b'e', b't', 0xFF]).unwrap();
+        let Err(e) = Capture::builder().script_from_disk(&p) else {
+            panic!("expected utf-8 failure");
+        };
+        assert!(format!("{e}").contains("utf-8"));
+    }
+
+    #[test]
+    fn script_from_disk_overrides_prior_script_call() {
+        let tmp = tempdir().unwrap();
+        let p = tmp.path().join("hook.js");
+        std::fs::write(&p, b"after").unwrap();
+        let b = Capture::builder()
+            .script("before")
+            .script_from_disk(&p)
+            .unwrap();
+        match b.script_input().unwrap() {
+            ScriptInput::Source(s) => assert_eq!(s, "after"),
+            _ => panic!(),
+        }
     }
 }
