@@ -1,19 +1,24 @@
 //! `Capture` + `CaptureBuilder` — the public surface for assembling a session.
 //!
-//! The actual frida work happens on a worker thread; see `worker.rs`. This
+//! The actual frida work happens on a worker thread; see [`worker`]. This
 //! file only owns the user-facing config + the `start()` plumbing that hands
-//! the config to a worker and returns a `CaptureHandle`.
+//! the config to a worker and returns a [`CaptureHandle`].
+
+pub mod handle;
+pub mod handler;
+mod worker;
+
+pub use handle::CaptureHandle;
+pub use handler::{Handler, Message};
 
 use std::path::Path;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use self::worker::worker_loop;
 use crate::error::{Error, Result};
-use crate::handle::CaptureHandle;
-use crate::handler::Handler;
 use crate::target::{DeviceSel, Target};
-use crate::worker::worker_loop;
 
 const DEFAULT_DETACH_POLL: Duration = Duration::from_millis(500);
 const DEFAULT_START_TIMEOUT: Duration = Duration::from_secs(30);

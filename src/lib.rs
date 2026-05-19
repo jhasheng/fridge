@@ -58,19 +58,14 @@
 //! Events print as JSON lines on stdout. `--record` writes them through
 //! `fridge::record::Writer<Event>` so `replay` can read them back.
 
-mod builder;
+mod capture;
 mod error;
 mod event;
-mod handle;
-mod handler;
 mod target;
-mod worker;
 
-pub use builder::{Capture, CaptureBuilder};
+pub use capture::{Capture, CaptureBuilder, CaptureHandle, Handler, Message};
 pub use error::{Error, Result};
 pub use event::{Event, LogLevel};
-pub use handle::CaptureHandle;
-pub use handler::{Handler, Message};
 pub use target::{DetachReason, DeviceSel, Target};
 
 #[cfg(feature = "record")]
