@@ -60,6 +60,7 @@
 
 mod capture;
 mod error;
+pub mod discover;
 
 pub use capture::{
     Capture, CaptureBuilder, CaptureHandle, DetachReason, DeviceSel, Event, Handler, LogLevel,

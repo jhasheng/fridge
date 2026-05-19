@@ -86,6 +86,10 @@ path = "examples/inspect.rs"
 name = "raw_field"
 path = "examples/raw_field.rs"
 
+[[example]]
+name = "decorator"
+path = "examples/decorator.rs"
+
 [[bin]]
 name = "fridge"
 path = "src/bin/fridge.rs"

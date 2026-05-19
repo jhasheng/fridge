@@ -16,6 +16,12 @@ pub use frida::Message;
 /// which is the same thread that owns the frida `Session` and `Script`. Don't
 /// block here — frida cannot deliver further messages until you return. Forward
 /// to a channel / `Arc<Mutex<_>>` if you need to do anything expensive.
+///
+/// **Composition:** since the trait only requires `Send + 'static`, wrapping
+/// one `Handler` in another (rate-limiter, prefix tagger, fan-out, JSON
+/// logger) needs no special crate support — implement the trait on a struct
+/// that owns the inner `H` and forward the calls. See `examples/decorator.rs`
+/// for the pattern in action.
 pub trait Handler: Send + 'static {
     /// Normalized script event — `send()`, console log, or runtime error.
     /// `data` is the binary payload from `send(obj, data)`, if any.

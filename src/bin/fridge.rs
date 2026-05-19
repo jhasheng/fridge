@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use fridge::record::Writer;
-use fridge::{Capture, DetachReason, DeviceSel, Event, Handler, Target};
+use fridge::{compile_script, Capture, DetachReason, DeviceSel, Event, Handler, Target};
 
 /// 4-byte capture-file tag used by this CLI. Captures recorded by
 /// `fridge attach --record` are tagged `"FRGE"` and `fridge replay`
@@ -64,6 +64,25 @@ enum Cmd {
         /// Capture file path.
         file: PathBuf,
     },
+    /// Compile a JS source file to frida bytecode (.bin). Saves an
+    /// `npm install -g frida-compile` dependency.
+    Compile {
+        /// Path to the `.js` source file.
+        source: PathBuf,
+        /// Output file. When omitted, writes raw bytes to stdout
+        /// (use `--output FILE` or shell redirection to capture).
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+    },
+    /// List every device frida currently sees.
+    LsDevices,
+    /// List processes on a device.
+    LsProcesses {
+        /// Which device: `local` (default), `usb`, `remote:HOST:PORT`,
+        /// `by-id:DEVICE_ID`.
+        #[arg(long, default_value = "local")]
+        device: String,
+    },
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -76,7 +95,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             device,
         } => run_attach(target, script, record, parse_device(&device)?),
         Cmd::Replay { file } => run_replay(file),
+        Cmd::Compile { source, output } => run_compile(source, output),
+        Cmd::LsDevices => run_ls_devices(),
+        Cmd::LsProcesses { device } => run_ls_processes(parse_device(&device)?),
     }
+}
+
+fn run_ls_devices() -> Result<(), Box<dyn std::error::Error>> {
+    // Format: tab-separated id / kind / name. Pipe through `column -t`
+    // for an aligned view; pipe through grep / awk for filtering.
+    for d in fridge::discover::devices()? {
+        println!("{}\t{:?}\t{}", d.id, d.kind, d.name);
+    }
+    Ok(())
+}
+
+fn run_ls_processes(sel: DeviceSel) -> Result<(), Box<dyn std::error::Error>> {
+    for p in fridge::discover::processes(sel)? {
+        let ppid = p
+            .ppid
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        println!("{}\t{}\t{}", p.pid, ppid, p.name);
+    }
+    Ok(())
+}
+
+fn run_compile(
+    source: PathBuf,
+    output: Option<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let src = std::fs::read_to_string(&source)?;
+    let bytes = compile_script(&src)?;
+    match output {
+        Some(path) => {
+            std::fs::write(&path, &bytes)?;
+            eprintln!("wrote {} bytes to {}", bytes.len(), path.display());
+        }
+        None => {
+            use std::io::Write;
+            std::io::stdout().write_all(&bytes)?;
+        }
+    }
+    Ok(())
 }
 
 fn parse_device(s: &str) -> Result<DeviceSel, Box<dyn std::error::Error>> {
