@@ -44,6 +44,14 @@
 //!    [`record`] module is a length-framed bincode appender + reader,
 //!    generic over any `Serialize`-able message type — capture frida
 //!    messages to disk and read them back without rolling your own framing.
+//! 6. **Hot script reload.** [`CaptureHandle::reload_source`] /
+//!    [`CaptureHandle::reload_bytes`] / [`CaptureHandle::reload_from_disk`]
+//!    swap the script on a live session — no detach + reattach, no
+//!    [`Handler::on_started`] re-fire.
+//! 7. **Device + process discovery.** [`discover::devices`] /
+//!    [`discover::processes`] return owned snapshots you can hold across
+//!    threads, so callers don't have to manage `Frida::obtain` /
+//!    `DeviceManager` lifetimes themselves.
 //!
 //! # CLI
 //!

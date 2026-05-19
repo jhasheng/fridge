@@ -47,6 +47,34 @@ pub(crate) enum ScriptInput {
     Bytes(Vec<u8>),
 }
 
+/// Commands sent from `CaptureHandle` to the worker thread. The
+/// receiver doubles as the "is the consumer still around" sentinel —
+/// `Err(Disconnected)` on `recv_timeout` triggers an orderly shutdown.
+pub(crate) enum WorkerCmd {
+    /// Tear down the current script + return from the worker loop.
+    Stop,
+    /// Unload the current script and create+load a new one from this
+    /// input. Session stays alive; no new `on_started` is emitted.
+    ReloadScript(ScriptInput),
+}
+
+/// Read a file from disk and pick `Source` or `Bytes` by extension
+/// (`.js` -> source, anything else -> bytecode). Shared between
+/// [`CaptureBuilder::script_from_disk`] and the reload methods on
+/// [`CaptureHandle`] so the dispatch rule lives in one place.
+pub(crate) fn script_input_from_disk(path: &Path) -> Result<ScriptInput> {
+    let bytes = std::fs::read(path)
+        .map_err(|e| Error::Frida(format!("read script {}: {e}", path.display())))?;
+    Ok(if path.extension().and_then(|e| e.to_str()) == Some("js") {
+        let src = String::from_utf8(bytes).map_err(|e| {
+            Error::Frida(format!("script {} is not valid utf-8: {e}", path.display()))
+        })?;
+        ScriptInput::Source(src)
+    } else {
+        ScriptInput::Bytes(bytes)
+    })
+}
+
 /// Builder for [`Capture`].
 pub struct CaptureBuilder {
     target: Option<Target>,
@@ -105,18 +133,9 @@ impl CaptureBuilder {
     ///
     /// Mutually exclusive with [`script`](Self::script) and
     /// [`script_bytes`](Self::script_bytes); the last one set wins.
-    pub fn script_from_disk<P: AsRef<Path>>(self, path: P) -> Result<Self> {
-        let p = path.as_ref();
-        let bytes = std::fs::read(p)
-            .map_err(|e| Error::Frida(format!("read script {}: {e}", p.display())))?;
-        Ok(if p.extension().and_then(|e| e.to_str()) == Some("js") {
-            let src = String::from_utf8(bytes).map_err(|e| {
-                Error::Frida(format!("script {} is not valid utf-8: {e}", p.display()))
-            })?;
-            self.script(src)
-        } else {
-            self.script_bytes(bytes)
-        })
+    pub fn script_from_disk<P: AsRef<Path>>(mut self, path: P) -> Result<Self> {
+        self.script = Some(script_input_from_disk(path.as_ref())?);
+        Ok(self)
     }
 
     /// When the target was spawned (vs. attached to a running process), should
@@ -168,7 +187,7 @@ impl Capture {
     /// Spawn the worker thread and block until the script reports loaded (or
     /// the start timeout elapses, or frida rejects something).
     pub fn start<H: Handler>(self, handler: H) -> Result<CaptureHandle> {
-        let (stop_tx, stop_rx) = mpsc::channel::<()>();
+        let (cmd_tx, cmd_rx) = mpsc::channel::<WorkerCmd>();
         let (ready_tx, ready_rx) = mpsc::sync_channel::<Result<u32>>(1);
         let cfg = self.cfg;
         let start_timeout = cfg.start_timeout;
@@ -177,7 +196,7 @@ impl Capture {
 
         let worker = thread::Builder::new()
             .name("fridge-worker".into())
-            .spawn(move || worker_loop(cfg, handler_for_worker, stop_rx, ready_tx))
+            .spawn(move || worker_loop(cfg, handler_for_worker, cmd_rx, ready_tx))
             .map_err(|e| Error::Frida(format!("spawn worker: {e}")))?;
 
         let pid = match ready_rx.recv_timeout(start_timeout) {
@@ -185,7 +204,7 @@ impl Capture {
             Err(_) => return Err(Error::StartTimeout(start_timeout)),
         };
 
-        Ok(CaptureHandle::new(worker, stop_tx, pid))
+        Ok(CaptureHandle::new(worker, cmd_tx, pid))
     }
 }
 

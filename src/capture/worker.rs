@@ -24,16 +24,16 @@ use frida::{
 use super::event::Event;
 use super::handler::{Handler, Message};
 use super::target::{DetachReason, DeviceSel, Target};
-use super::{CaptureConfig, ScriptInput};
+use super::{CaptureConfig, ScriptInput, WorkerCmd};
 use crate::error::{Error, Result};
 
 pub(crate) fn worker_loop<H: Handler>(
     cfg: CaptureConfig,
     handler: Arc<Mutex<H>>,
-    stop_rx: mpsc::Receiver<()>,
+    cmd_rx: mpsc::Receiver<WorkerCmd>,
     ready_tx: mpsc::SyncSender<Result<u32>>,
 ) {
-    let outcome = run_capture(&cfg, &handler, &stop_rx, &ready_tx);
+    let outcome = run_capture(&cfg, &handler, &cmd_rx, &ready_tx);
 
     match outcome {
         Ok(reason) => {
@@ -56,7 +56,7 @@ pub(crate) fn worker_loop<H: Handler>(
 fn run_capture<H: Handler>(
     cfg: &CaptureConfig,
     handler: &Arc<Mutex<H>>,
-    stop_rx: &mpsc::Receiver<()>,
+    cmd_rx: &mpsc::Receiver<WorkerCmd>,
     ready_tx: &mpsc::SyncSender<Result<u32>>,
 ) -> Result<DetachReason> {
     let frida = unsafe { Frida::obtain() };
@@ -66,17 +66,7 @@ fn run_capture<H: Handler>(
     let (pid, spawned) = resolve_target(&mut device, &cfg.target)?;
 
     let session = device.attach(pid)?;
-    let mut opts = ScriptOption::default();
-    let mut script = match &cfg.script {
-        ScriptInput::Source(src) => session.create_script(src, &mut opts)?,
-        ScriptInput::Bytes(bytes) => session.create_script_from_bytes(bytes, &mut opts)?,
-    };
-
-    let bridge = MessageBridge::<H> {
-        handler: Arc::clone(handler),
-    };
-    script.handle_message(bridge)?;
-    script.load()?;
+    let mut script = create_and_load_script(&session, &cfg.script, handler)?;
 
     if spawned && cfg.resume_after_spawn {
         device.resume(pid)?;
@@ -88,10 +78,19 @@ fn run_capture<H: Handler>(
     let _ = ready_tx.send(Ok(pid));
 
     loop {
-        match stop_rx.recv_timeout(cfg.detach_poll) {
-            Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+        match cmd_rx.recv_timeout(cfg.detach_poll) {
+            Ok(WorkerCmd::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                 let _ = script.unload();
                 return Ok(DetachReason::Stopped);
+            }
+            Ok(WorkerCmd::ReloadScript(input)) => {
+                // Drop the old script before installing the new one.
+                // Session stays alive — no detach / reattach, no
+                // on_started re-fire. If the new script fails to load,
+                // we bail with that error (Handler sees on_detached
+                // with DetachReason::Error).
+                let _ = script.unload();
+                script = create_and_load_script(&session, &input, handler)?;
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if session.is_detached() {
@@ -100,6 +99,24 @@ fn run_capture<H: Handler>(
             }
         }
     }
+}
+
+fn create_and_load_script<'a, H: Handler>(
+    session: &'a frida::Session<'a>,
+    input: &ScriptInput,
+    handler: &Arc<Mutex<H>>,
+) -> Result<frida::Script<'a>> {
+    let mut opts = ScriptOption::default();
+    let mut script = match input {
+        ScriptInput::Source(src) => session.create_script(src, &mut opts)?,
+        ScriptInput::Bytes(bytes) => session.create_script_from_bytes(bytes, &mut opts)?,
+    };
+    let bridge = MessageBridge::<H> {
+        handler: Arc::clone(handler),
+    };
+    script.handle_message(bridge)?;
+    script.load()?;
+    Ok(script)
 }
 
 fn pick_device<'a>(mgr: &'a DeviceManager, sel: &DeviceSel) -> Result<Device<'a>> {
