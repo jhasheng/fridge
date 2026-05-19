@@ -8,7 +8,7 @@ use bincode::config::standard;
 use bincode::serde::decode_from_slice;
 use serde::de::DeserializeOwned;
 
-use super::{bincode_err, io_err, HEADER_LEN, MAGIC, VERSION};
+use super::{bincode_err, io_err, HEADER_LEN, MAGIC, MAX_FRAME_BYTES, VERSION};
 use crate::error::{Error, Result};
 
 /// Read the whole capture into a `Vec<M>`. See
@@ -74,6 +74,11 @@ where
             Err(e) => return Err(io_err("read len", e)),
         }
         let len = u32::from_le_bytes(len_bytes) as usize;
+        if len > MAX_FRAME_BYTES {
+            return Err(Error::Record(format!(
+                "frame too large: {len} bytes (cap {MAX_FRAME_BYTES}); file likely corrupt"
+            )));
+        }
         let mut buf = vec![0u8; len];
         if let Err(e) = file.read_exact(&mut buf) {
             if e.kind() == ErrorKind::UnexpectedEof {

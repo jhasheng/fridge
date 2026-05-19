@@ -45,6 +45,14 @@ pub(super) const MAGIC: [u8; 4] = *b"FRGE";
 pub(super) const VERSION: u32 = 1;
 pub(super) const HEADER_LEN: u64 = (MAGIC.len() + 4 + 4) as u64;
 
+/// Hard cap on a single entry's encoded byte count. A malformed or
+/// adversarial length prefix could otherwise drive a `vec![0u8; len]`
+/// of up to 4 GiB before the actual read fails. 16 MiB is generous —
+/// frida send payloads in practice are KB-scale; if you hit this on
+/// legitimate data, the cap is too low and we should expose it as
+/// a Writer/Reader option.
+pub(super) const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
+
 pub(super) fn io_err(ctx: &str, e: std::io::Error) -> Error {
     Error::Record(format!("{ctx}: {e}"))
 }
@@ -230,6 +238,26 @@ mod tests {
 
         assert!(read_all::<TestMsg>(&a_path, TAG_B).is_err());
         assert!(read_all::<TestMsg>(&b_path, TAG_A).is_err());
+    }
+
+    #[test]
+    fn oversize_frame_errors_not_panics() {
+        // Header valid; len prefix = u32::MAX → if we just trusted it
+        // we'd `vec![0u8; 4_294_967_295]` and OOM. The reader should
+        // refuse cleanly before any allocation.
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("huge.bin");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"FRGE");
+        bytes.extend_from_slice(&VERSION.to_le_bytes());
+        bytes.extend_from_slice(&TEST_TAG);
+        bytes.extend_from_slice(&u32::MAX.to_le_bytes());
+        std::fs::write(&path, &bytes).unwrap();
+        let err = read_all::<TestMsg>(&path, TEST_TAG).unwrap_err();
+        assert!(
+            format!("{err}").contains("frame too large"),
+            "expected size-cap error, got: {err}"
+        );
     }
 
     #[test]

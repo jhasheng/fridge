@@ -84,7 +84,11 @@ pub fn compile_script(source: &str) -> Result<Vec<u8>> {
     let device = mgr.get_local_device()?;
     let session = device.attach(std::process::id())?;
     let mut opts = frida::ScriptOption::default();
-    let bytes = session.compile_script(source, &mut opts)?;
+    // Capture the result *before* detach so we can clean up
+    // unconditionally — `?` here would leak the session on a
+    // compile failure (frida-side resources kept open until the
+    // GObject is dropped, which `?` skips past).
+    let result = session.compile_script(source, &mut opts);
     let _ = session.detach();
-    Ok(bytes)
+    Ok(result?)
 }
