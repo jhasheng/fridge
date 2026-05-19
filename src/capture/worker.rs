@@ -21,11 +21,11 @@ use frida::{
     Device, DeviceManager, DeviceType, Frida, Scope, ScriptHandler, ScriptOption, SpawnOptions,
 };
 
+use super::event::Event;
 use super::handler::{Handler, Message};
+use super::target::{DetachReason, DeviceSel, Target};
 use super::{CaptureConfig, ScriptInput};
 use crate::error::{Error, Result};
-use crate::event::Event;
-use crate::target::{DetachReason, DeviceSel, Target};
 
 pub(crate) fn worker_loop<H: Handler>(
     cfg: CaptureConfig,

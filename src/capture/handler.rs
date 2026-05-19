@@ -4,8 +4,8 @@
 //! All methods except `on_message` have empty default impls — you only opt in
 //! to what you care about.
 
-use crate::event::Event;
-use crate::target::DetachReason;
+use super::event::Event;
+use super::target::DetachReason;
 
 // Re-export frida's raw Message in case a consumer needs the unfiltered form.
 pub use frida::Message;

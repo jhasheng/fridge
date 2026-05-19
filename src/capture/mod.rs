@@ -4,12 +4,16 @@
 //! file only owns the user-facing config + the `start()` plumbing that hands
 //! the config to a worker and returns a [`CaptureHandle`].
 
+pub mod event;
 pub mod handle;
 pub mod handler;
+pub mod target;
 mod worker;
 
+pub use event::{Event, LogLevel};
 pub use handle::CaptureHandle;
 pub use handler::{Handler, Message};
+pub use target::{DetachReason, DeviceSel, Target};
 
 use std::path::Path;
 use std::sync::{mpsc, Arc, Mutex};
@@ -18,7 +22,6 @@ use std::time::Duration;
 
 use self::worker::worker_loop;
 use crate::error::{Error, Result};
-use crate::target::{DeviceSel, Target};
 
 const DEFAULT_DETACH_POLL: Duration = Duration::from_millis(500);
 const DEFAULT_START_TIMEOUT: Duration = Duration::from_secs(30);

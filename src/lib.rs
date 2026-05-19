@@ -60,13 +60,12 @@
 
 mod capture;
 mod error;
-mod event;
-mod target;
 
-pub use capture::{Capture, CaptureBuilder, CaptureHandle, Handler, Message};
+pub use capture::{
+    Capture, CaptureBuilder, CaptureHandle, DetachReason, DeviceSel, Event, Handler, LogLevel,
+    Message, Target,
+};
 pub use error::{Error, Result};
-pub use event::{Event, LogLevel};
-pub use target::{DetachReason, DeviceSel, Target};
 
 #[cfg(feature = "record")]
 pub mod record;
