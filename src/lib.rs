@@ -67,8 +67,8 @@
 //! `fridge::record::Writer<Event>` so `replay` can read them back.
 
 mod capture;
-mod error;
 pub mod discover;
+mod error;
 
 pub use capture::{
     Capture, CaptureBuilder, CaptureHandle, DetachReason, DeviceSel, Event, Handler, LogLevel,

@@ -82,12 +82,7 @@ impl CaptureHandle {
         // Drop the sender to signal Disconnected as a fallback — and
         // try one explicit Stop first so the worker exits faster than
         // the next `detach_poll` tick.
-        if let Some(tx) = self
-            .cmd_tx
-            .get_mut()
-            .ok()
-            .and_then(|opt| opt.take())
-        {
+        if let Some(tx) = self.cmd_tx.get_mut().ok().and_then(|opt| opt.take()) {
             let _ = tx.send(WorkerCmd::Stop);
         }
         if let Some(j) = self.worker.take() {

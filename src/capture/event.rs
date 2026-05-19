@@ -140,7 +140,10 @@ fn parse_level(s: &str) -> LogLevel {
 }
 
 fn str_field(v: &Value, key: &str) -> String {
-    v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string()
+    v.get(key)
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 fn u64_field(v: &Value, key: &str) -> u64 {

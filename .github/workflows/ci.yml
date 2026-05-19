@@ -1,0 +1,60 @@
+name: ci
+
+on:
+  push:
+    branches: ["main", "dev/**"]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # frida-sys uses bindgen at build — pin the toolchain so cache hits
+  # are stable across stable releases.
+  RUST_TOOLCHAIN: stable
+
+jobs:
+  build:
+    name: build (${{ matrix.features }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Cover every feature combination that ships:
+        #   default          (auto-download + record)
+        #   --all-features   (also includes cli)
+        #   record only      (auto-download off — pure library consumer)
+        #   cli only         (drag in clap + ctrlc + chrono + bincode)
+        features:
+          - "default"
+          - "--all-features"
+          - "--no-default-features --features auto-download"
+          - "--no-default-features --features auto-download,cli"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.features }}
+
+      - name: build
+        run: cargo build ${{ matrix.features == 'default' && '' || matrix.features }}
+
+      - name: test
+        run: cargo test ${{ matrix.features == 'default' && '' || matrix.features }}
+
+  lint:
+    name: lint
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: rustfmt
+        run: cargo fmt --check
+
+      - name: clippy
+        # `-D warnings` so any new lint becomes a failure, not a comment buried
+        # in the log. --all-features so we cover record + cli at once.
+        run: cargo clippy --all-features --all-targets -- -D warnings

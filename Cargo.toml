@@ -27,7 +27,7 @@ record = ["dep:bincode", "dep:chrono"]
 # over the library API. Off by default so pure-library users don't drag
 # in clap + ctrlc. Enable with `cargo install fridge --features cli` or
 # `cargo run --features cli -- attach ...`.
-cli = ["dep:clap", "dep:ctrlc", "record"]
+cli = ["dep:clap", "dep:ctrlc", "dep:anyhow", "record"]
 
 [dependencies]
 # Pulled directly from the jhasheng/frida-rust fork's `dev` branch. That fork carries:
@@ -69,8 +69,13 @@ clap = { version = "4", features = ["derive"], optional = true }
 # flushes when its orchestrator stops it.
 ctrlc = { version = "3", features = ["termination"], optional = true }
 
+# Error chains for the `fridge` binary — Box<dyn Error> loses the
+# source chain when bubbling lib errors up to main(); anyhow preserves
+# it via `?` so the user sees the real frida cause.
+anyhow = { version = "1", optional = true }
+
 [dev-dependencies]
-# `inspect` example
+# Examples use the same chained-error machinery as the CLI.
 anyhow = "1"
 # Round-trip tests for the record module use isolated temp dirs.
 tempfile = "3"
@@ -89,6 +94,12 @@ path = "examples/raw_field.rs"
 [[example]]
 name = "decorator"
 path = "examples/decorator.rs"
+
+[[example]]
+name = "record_round_trip"
+path = "examples/record_round_trip.rs"
+# Uses `fridge::record` — won't compile when consumers turn it off.
+required-features = ["record"]
 
 [[bin]]
 name = "fridge"

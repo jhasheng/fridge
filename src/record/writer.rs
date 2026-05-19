@@ -28,8 +28,7 @@ impl<M: Serialize> Writer<M> {
     /// Subsequent calls to [`Writer::append`] append framed entries.
     pub fn create(path: PathBuf, tag: [u8; 4]) -> Result<Self> {
         if let Some(parent) = path.parent() {
-            create_dir_all(parent)
-                .map_err(|e| io_err(&format!("mkdir {parent:?}"), e))?;
+            create_dir_all(parent).map_err(|e| io_err(&format!("mkdir {parent:?}"), e))?;
         }
         let mut file = BufWriter::new(
             OpenOptions::new()
@@ -39,7 +38,8 @@ impl<M: Serialize> Writer<M> {
                 .open(&path)
                 .map_err(|e| io_err(&format!("create {path:?}"), e))?,
         );
-        file.write_all(&MAGIC).map_err(|e| io_err("write magic", e))?;
+        file.write_all(&MAGIC)
+            .map_err(|e| io_err("write magic", e))?;
         file.write_all(&VERSION.to_le_bytes())
             .map_err(|e| io_err("write version", e))?;
         file.write_all(&tag).map_err(|e| io_err("write tag", e))?;
@@ -54,12 +54,13 @@ impl<M: Serialize> Writer<M> {
     /// Encode `msg` and append a length-prefixed frame. Flushes per
     /// call so a crash loses at most this single message.
     pub fn append(&mut self, msg: &M) -> Result<()> {
-        let bytes = encode_to_vec(msg, standard())
-            .map_err(|e| bincode_err("encode", e))?;
+        let bytes = encode_to_vec(msg, standard()).map_err(|e| bincode_err("encode", e))?;
         self.file
             .write_all(&(bytes.len() as u32).to_le_bytes())
             .map_err(|e| io_err("write len", e))?;
-        self.file.write_all(&bytes).map_err(|e| io_err("write body", e))?;
+        self.file
+            .write_all(&bytes)
+            .map_err(|e| io_err("write body", e))?;
         self.file.flush().map_err(|e| io_err("flush entry", e))?;
         Ok(())
     }

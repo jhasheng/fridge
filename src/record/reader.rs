@@ -149,11 +149,7 @@ pub fn read_all<M: DeserializeOwned>(path: &Path, tag: [u8; 4]) -> Result<Vec<M>
 /// Same as [`read_all`] but invokes `on_progress(read_bytes, total_bytes)`
 /// periodically (throttled to ~64 KiB) so a loader running on a worker
 /// thread can push updates to the UI without flooding the channel.
-pub fn read_all_with_progress<M, F>(
-    path: &Path,
-    tag: [u8; 4],
-    mut on_progress: F,
-) -> Result<Vec<M>>
+pub fn read_all_with_progress<M, F>(path: &Path, tag: [u8; 4], mut on_progress: F) -> Result<Vec<M>>
 where
     M: DeserializeOwned,
     F: FnMut(u64, u64),

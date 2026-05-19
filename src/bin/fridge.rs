@@ -85,7 +85,7 @@ enum Cmd {
     },
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Attach {
@@ -101,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-fn run_ls_devices() -> Result<(), Box<dyn std::error::Error>> {
+fn run_ls_devices() -> anyhow::Result<()> {
     // Format: tab-separated id / kind / name. Pipe through `column -t`
     // for an aligned view; pipe through grep / awk for filtering.
     for d in fridge::discover::devices()? {
@@ -110,7 +110,7 @@ fn run_ls_devices() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn run_ls_processes(sel: DeviceSel) -> Result<(), Box<dyn std::error::Error>> {
+fn run_ls_processes(sel: DeviceSel) -> anyhow::Result<()> {
     for p in fridge::discover::processes(sel)? {
         let ppid = p
             .ppid
@@ -121,10 +121,7 @@ fn run_ls_processes(sel: DeviceSel) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn run_compile(
-    source: PathBuf,
-    output: Option<PathBuf>,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn run_compile(source: PathBuf, output: Option<PathBuf>) -> anyhow::Result<()> {
     let src = std::fs::read_to_string(&source)?;
     let bytes = compile_script(&src)?;
     match output {
@@ -140,13 +137,13 @@ fn run_compile(
     Ok(())
 }
 
-fn parse_device(s: &str) -> Result<DeviceSel, Box<dyn std::error::Error>> {
+fn parse_device(s: &str) -> anyhow::Result<DeviceSel> {
     Ok(match s {
         "local" => DeviceSel::Local,
         "usb" => DeviceSel::Usb,
         s if s.starts_with("remote:") => DeviceSel::Remote(s["remote:".len()..].into()),
         s if s.starts_with("by-id:") => DeviceSel::ById(s["by-id:".len()..].into()),
-        other => return Err(format!("unknown device selector: {other}").into()),
+        other => anyhow::bail!("unknown device selector: {other}"),
     })
 }
 
@@ -155,7 +152,7 @@ fn run_attach(
     script: PathBuf,
     record: Option<PathBuf>,
     device: DeviceSel,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let recorder: Option<Arc<Mutex<Writer<Event>>>> = match record {
         Some(path) => {
             eprintln!("recording to {}", path.display());
@@ -189,7 +186,7 @@ fn run_attach(
     Ok(())
 }
 
-fn run_replay(file: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+fn run_replay(file: PathBuf) -> anyhow::Result<()> {
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
     let mut n: u64 = 0;
