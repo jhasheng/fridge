@@ -15,10 +15,14 @@ name = "fridge"
 path = "src/lib.rs"
 
 [features]
-default = ["auto-download"]
+default = ["auto-download", "record"]
 # Pulls frida-core devkit during build so the consumer doesn't need a local
 # install. Turn off if you already have devkit on rustc-link-search.
 auto-download = ["frida/auto-download"]
+# Length-framed bincode capture recorder (Writer<M> / read_all<M>).
+# Default-on for zero-config UX; off-by-default consumers (e.g. tauri
+# plugin layers that only forward events) can drop bincode by disabling.
+record = ["dep:bincode", "dep:chrono"]
 
 [dependencies]
 # Pulled directly from the jhasheng/frida-rust fork's `dev` branch. That fork carries:
@@ -41,9 +45,23 @@ serde = { version = "1", features = ["derive"] }
 # serde_json themselves.
 serde_json = "1"
 
+# Length-framed capture format under the `record` feature. v2 uses the
+# `bincode::serde` adapter so consumer message types only need serde
+# derives, not bincode-native Encode/Decode.
+bincode = { version = "2", features = ["serde"], optional = true }
+
+# Local-tz timestamps for `timestamped_path` filenames under `record`.
+# default-features off keeps it minimal — only `clock` is needed.
+chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
+
 [dev-dependencies]
 # `inspect` example
 anyhow = "1"
+# Round-trip tests for the record module use isolated temp dirs.
+tempfile = "3"
+
+[package.metadata.docs.rs]
+all-features = true
 
 [[example]]
 name = "inspect"
