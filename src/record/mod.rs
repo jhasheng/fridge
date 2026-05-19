@@ -33,7 +33,7 @@ mod reader;
 mod writer;
 
 pub use listing::{list_captures, timestamped_path, CaptureFile};
-pub use reader::{read_all, read_all_with_progress};
+pub use reader::{read_all, read_all_with_progress, read_iter, ReadIter};
 pub use writer::Writer;
 
 use crate::error::Error;
@@ -238,6 +238,55 @@ mod tests {
 
         assert!(read_all::<TestMsg>(&a_path, TAG_B).is_err());
         assert!(read_all::<TestMsg>(&b_path, TAG_A).is_err());
+    }
+
+    #[test]
+    fn read_iter_streams_one_at_a_time() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("stream.bin");
+        let mut w = Writer::<TestMsg>::create(path.clone(), TEST_TAG).unwrap();
+        for i in 0..5 {
+            w.append(&TestMsg {
+                id: i,
+                label: format!("m{i}"),
+                body: vec![],
+            })
+            .unwrap();
+        }
+        drop(w);
+
+        let mut iter = read_iter::<TestMsg>(&path, TEST_TAG).unwrap();
+        // Header is consumed before the first next().
+        assert_eq!(iter.bytes_read(), HEADER_LEN);
+        for i in 0..5 {
+            let m = iter.next().unwrap().unwrap();
+            assert_eq!(m.id, i);
+        }
+        assert!(iter.next().is_none(), "iterator exhausts after 5 entries");
+        assert!(iter.next().is_none(), "fused after exhaustion");
+    }
+
+    #[test]
+    fn read_iter_yields_error_for_corrupt_then_stops() {
+        // Valid 1st entry, then a frame whose decoded body is invalid
+        // bincode. Iterator should yield Ok, then Err, then None.
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("corrupt.bin");
+        let mut w = Writer::<TestMsg>::create(path.clone(), TEST_TAG).unwrap();
+        w.append(&sample()).unwrap();
+        drop(w);
+        let mut f = OpenOptions::new().append(true).open(&path).unwrap();
+        // Frame: len=3, body=[0xFF, 0xFF, 0xFF] — bincode can't parse
+        // these as a TestMsg.
+        f.write_all(&3u32.to_le_bytes()).unwrap();
+        f.write_all(&[0xFF, 0xFF, 0xFF]).unwrap();
+        drop(f);
+
+        let mut iter = read_iter::<TestMsg>(&path, TEST_TAG).unwrap();
+        assert!(iter.next().unwrap().is_ok());
+        let err = iter.next().unwrap().unwrap_err();
+        assert!(format!("{err}").contains("decode"));
+        assert!(iter.next().is_none(), "fused after error");
     }
 
     #[test]
