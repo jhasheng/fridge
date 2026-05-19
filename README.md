@@ -139,6 +139,60 @@ Caveats:
 - It's mild obfuscation, not encryption. V8/QJS bytecode is reversible — it
   raises the floor, not the ceiling.
 
+## Loading scripts from a file path
+
+If your config holds a path and you don't want to repeat the
+read+extension-dispatch boilerplate, [`CaptureBuilder::script_from_disk`]
+does it for you:
+
+```rust
+Capture::builder()
+    .target(Target::name("Weixin.exe"))
+    .script_from_disk("hook.bin")?     // .js → source, anything else → bytecode
+    .start(handler)?;
+```
+
+The only stable rule is "is it `.js` or not" — `.bin`, `.qjsc`, no
+extension, all land as bytes. Whitelisting `.js` because UTF-8 sniffing
+would misclassify any 7-bit-ASCII bytecode.
+
+## Capture record/replay (`record` feature, default-on)
+
+The `record` module is a length-framed bincode capture format generic
+over any `Serialize`-able message type. Use it to dump frida events to
+disk and replay them later — no hand-rolled framing or magic-byte
+handling.
+
+```rust
+use fridge::record::{Writer, read_all, timestamped_path};
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize)]
+struct MyMsg { url: String, body: Vec<u8> }
+
+const TAG: [u8; 4] = *b"DEMO"; // pick 4 bytes from your crate name
+
+// Write
+let path = timestamped_path("captures".as_ref(), "cap", "bin");
+let mut w = Writer::<MyMsg>::create(path.clone(), TAG)?;
+w.append(&MyMsg { url: "/foo".into(), body: vec![1, 2, 3] })?;
+drop(w);
+
+// Read back
+let msgs: Vec<MyMsg> = read_all(&path, TAG)?;
+```
+
+The 4-byte caller tag isolates your captures from other fridge consumers
+that might share the same directory — cross-decoding errors out instead
+of silently producing garbage. File header layout:
+`MAGIC "FRGE" | u32 LE version | [u8; 4] tag` then framed entries.
+
+Writer flushes per append; reader tolerates a truncated trailing frame
+(interrupted writer).
+
+Turn off via `default-features = false` if you don't record — drops the
+`bincode` + `chrono` dependencies.
+
 ## Build requirements
 
 - LLVM / `libclang.dll` on `LIBCLANG_PATH` (frida-sys uses bindgen at build).

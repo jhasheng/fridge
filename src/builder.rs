@@ -150,11 +150,6 @@ impl CaptureBuilder {
     pub fn start<H: Handler>(self, handler: H) -> Result<CaptureHandle> {
         self.build()?.start(handler)
     }
-
-    #[cfg(test)]
-    pub(crate) fn script_input(&self) -> Option<&ScriptInput> {
-        self.script.as_ref()
-    }
 }
 
 impl Capture {
@@ -197,7 +192,7 @@ mod tests {
         let p = tmp.path().join("hook.js");
         std::fs::write(&p, b"console.log('hi');").unwrap();
         let b = Capture::builder().script_from_disk(&p).unwrap();
-        match b.script_input().unwrap() {
+        match b.script.as_ref().unwrap() {
             ScriptInput::Source(s) => assert_eq!(s, "console.log('hi');"),
             ScriptInput::Bytes(_) => panic!(".js should land as Source"),
         }
@@ -211,7 +206,7 @@ mod tests {
         let payload: Vec<u8> = vec![0xDE, 0xAD, 0xBE, 0xEF, 0xFF];
         std::fs::write(&p, &payload).unwrap();
         let b = Capture::builder().script_from_disk(&p).unwrap();
-        match b.script_input().unwrap() {
+        match b.script.as_ref().unwrap() {
             ScriptInput::Bytes(bs) => assert_eq!(bs, &payload),
             ScriptInput::Source(_) => panic!(".bin should land as Bytes"),
         }
@@ -224,7 +219,7 @@ mod tests {
         let p = tmp.path().join("hook.qjsc");
         std::fs::write(&p, b"\x01\x02\x03").unwrap();
         let b = Capture::builder().script_from_disk(&p).unwrap();
-        assert!(matches!(b.script_input(), Some(ScriptInput::Bytes(_))));
+        assert!(matches!(b.script.as_ref(), Some(ScriptInput::Bytes(_))));
     }
 
     #[test]
@@ -258,7 +253,7 @@ mod tests {
             .script("before")
             .script_from_disk(&p)
             .unwrap();
-        match b.script_input().unwrap() {
+        match b.script.as_ref().unwrap() {
             ScriptInput::Source(s) => assert_eq!(s, "after"),
             _ => panic!(),
         }

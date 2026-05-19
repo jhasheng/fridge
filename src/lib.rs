@@ -37,6 +37,13 @@
 //! 3. **Builder ergonomics.** Pick a [`Target`] + [`DeviceSel`], hand over a
 //!    JS string, plug in a [`Handler`]. No `Frida::obtain` / `DeviceManager` /
 //!    `ScriptOption` boilerplate.
+//! 4. **Script source on disk.** [`CaptureBuilder::script_from_disk`] reads
+//!    the file and dispatches by extension — `.js` → source, anything else
+//!    → bytecode bytes — so callers don't repeat the read+route boilerplate.
+//! 5. **Capture record/replay** (feature `record`, default-on). The
+//!    [`record`] module is a length-framed bincode appender + reader,
+//!    generic over any `Serialize`-able message type — capture frida
+//!    messages to disk and read them back without rolling your own framing.
 
 mod builder;
 mod error;
@@ -46,15 +53,15 @@ mod handler;
 mod target;
 mod worker;
 
-#[cfg(feature = "record")]
-pub mod record;
-
 pub use builder::{Capture, CaptureBuilder};
 pub use error::{Error, Result};
 pub use event::{Event, LogLevel};
 pub use handle::CaptureHandle;
 pub use handler::{Handler, Message};
 pub use target::{DetachReason, DeviceSel, Target};
+
+#[cfg(feature = "record")]
+pub mod record;
 
 /// Compile JS source to V8/QJS bytecode for later use with
 /// [`CaptureBuilder::script_bytes`].
