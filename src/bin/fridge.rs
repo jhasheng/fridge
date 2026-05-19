@@ -129,13 +129,17 @@ fn run_attach(
 }
 
 fn run_replay(file: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    let events: Vec<Event> = fridge::record::read_all(&file, CLI_TAG)?;
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
-    for evt in &events {
-        emit(&mut out, evt);
+    let mut n: u64 = 0;
+    // Stream entries one at a time so a 1 GiB capture doesn't try to
+    // sit in memory all at once. Header errors surface from read_iter
+    // itself; per-entry errors come through as Iterator items.
+    for item in fridge::record::read_iter::<Event>(&file, CLI_TAG)? {
+        emit(&mut out, &item?);
+        n += 1;
     }
-    eprintln!("{} events", events.len());
+    eprintln!("{n} events");
     Ok(())
 }
 
