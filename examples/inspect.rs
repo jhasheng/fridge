@@ -72,10 +72,11 @@ fn main() -> Result<()> {
         (None, Some(p), None) => builder.script(
             fs::read_to_string(&p).map_err(|e| anyhow!("read script {}: {}", p.display(), e))?,
         ),
-        (None, None, Some(p)) => builder.script_bytes(
-            fs::read(&p).map_err(|e| anyhow!("read bytes {}: {}", p.display(), e))?,
-        ),
-        (None, None, None) => return Err(anyhow!("need --script PATH | --inline JS | --bytes PATH")),
+        (None, None, Some(p)) => builder
+            .script_bytes(fs::read(&p).map_err(|e| anyhow!("read bytes {}: {}", p.display(), e))?),
+        (None, None, None) => {
+            return Err(anyhow!("need --script PATH | --inline JS | --bytes PATH"))
+        }
         _ => return Err(anyhow!("pick exactly one of --script / --inline / --bytes")),
     };
 
@@ -99,7 +100,8 @@ fn main() -> Result<()> {
 }
 
 fn run_compile(src_path: &PathBuf, out_path: &PathBuf) -> Result<()> {
-    let src = fs::read_to_string(src_path).with_context(|| format!("read {}", src_path.display()))?;
+    let src =
+        fs::read_to_string(src_path).with_context(|| format!("read {}", src_path.display()))?;
     let bc = fridge::compile_script(&src)?;
     fs::write(out_path, &bc).with_context(|| format!("write {}", out_path.display()))?;
     println!(
@@ -143,8 +145,12 @@ fn parse_args() -> Result<Args> {
             "--bytes" => a.bytes_path = it.next().map(PathBuf::from),
             "--inline" => a.inline = it.next(),
             "--compile" => {
-                let inp = it.next().ok_or_else(|| anyhow!("--compile needs <input.js> <output.bin>"))?;
-                let out = it.next().ok_or_else(|| anyhow!("--compile needs <input.js> <output.bin>"))?;
+                let inp = it
+                    .next()
+                    .ok_or_else(|| anyhow!("--compile needs <input.js> <output.bin>"))?;
+                let out = it
+                    .next()
+                    .ok_or_else(|| anyhow!("--compile needs <input.js> <output.bin>"))?;
                 a.compile = Some((PathBuf::from(inp), PathBuf::from(out)));
             }
             "--" => {

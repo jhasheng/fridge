@@ -1,19 +1,27 @@
 //! `Capture` + `CaptureBuilder` — the public surface for assembling a session.
 //!
-//! The actual frida work happens on a worker thread; see `worker.rs`. This
+//! The actual frida work happens on a worker thread; see [`worker`]. This
 //! file only owns the user-facing config + the `start()` plumbing that hands
-//! the config to a worker and returns a `CaptureHandle`.
+//! the config to a worker and returns a [`CaptureHandle`].
+
+pub mod event;
+pub mod handle;
+pub mod handler;
+pub mod target;
+mod worker;
+
+pub use event::{Event, LogLevel};
+pub use handle::CaptureHandle;
+pub use handler::{Handler, Message};
+pub use target::{DetachReason, DeviceSel, Target};
 
 use std::path::Path;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use self::worker::worker_loop;
 use crate::error::{Error, Result};
-use crate::handle::CaptureHandle;
-use crate::handler::Handler;
-use crate::target::{DeviceSel, Target};
-use crate::worker::worker_loop;
 
 const DEFAULT_DETACH_POLL: Duration = Duration::from_millis(500);
 const DEFAULT_START_TIMEOUT: Duration = Duration::from_secs(30);
@@ -37,6 +45,34 @@ pub(crate) struct CaptureConfig {
 pub(crate) enum ScriptInput {
     Source(String),
     Bytes(Vec<u8>),
+}
+
+/// Commands sent from `CaptureHandle` to the worker thread. The
+/// receiver doubles as the "is the consumer still around" sentinel —
+/// `Err(Disconnected)` on `recv_timeout` triggers an orderly shutdown.
+pub(crate) enum WorkerCmd {
+    /// Tear down the current script + return from the worker loop.
+    Stop,
+    /// Unload the current script and create+load a new one from this
+    /// input. Session stays alive; no new `on_started` is emitted.
+    ReloadScript(ScriptInput),
+}
+
+/// Read a file from disk and pick `Source` or `Bytes` by extension
+/// (`.js` -> source, anything else -> bytecode). Shared between
+/// [`CaptureBuilder::script_from_disk`] and the reload methods on
+/// [`CaptureHandle`] so the dispatch rule lives in one place.
+pub(crate) fn script_input_from_disk(path: &Path) -> Result<ScriptInput> {
+    let bytes = std::fs::read(path)
+        .map_err(|e| Error::Frida(format!("read script {}: {e}", path.display())))?;
+    Ok(if path.extension().and_then(|e| e.to_str()) == Some("js") {
+        let src = String::from_utf8(bytes).map_err(|e| {
+            Error::Frida(format!("script {} is not valid utf-8: {e}", path.display()))
+        })?;
+        ScriptInput::Source(src)
+    } else {
+        ScriptInput::Bytes(bytes)
+    })
 }
 
 /// Builder for [`Capture`].
@@ -97,18 +133,9 @@ impl CaptureBuilder {
     ///
     /// Mutually exclusive with [`script`](Self::script) and
     /// [`script_bytes`](Self::script_bytes); the last one set wins.
-    pub fn script_from_disk<P: AsRef<Path>>(self, path: P) -> Result<Self> {
-        let p = path.as_ref();
-        let bytes = std::fs::read(p)
-            .map_err(|e| Error::Frida(format!("read script {}: {e}", p.display())))?;
-        Ok(if p.extension().and_then(|e| e.to_str()) == Some("js") {
-            let src = String::from_utf8(bytes).map_err(|e| {
-                Error::Frida(format!("script {} is not valid utf-8: {e}", p.display()))
-            })?;
-            self.script(src)
-        } else {
-            self.script_bytes(bytes)
-        })
+    pub fn script_from_disk<P: AsRef<Path>>(mut self, path: P) -> Result<Self> {
+        self.script = Some(script_input_from_disk(path.as_ref())?);
+        Ok(self)
     }
 
     /// When the target was spawned (vs. attached to a running process), should
@@ -150,11 +177,6 @@ impl CaptureBuilder {
     pub fn start<H: Handler>(self, handler: H) -> Result<CaptureHandle> {
         self.build()?.start(handler)
     }
-
-    #[cfg(test)]
-    pub(crate) fn script_input(&self) -> Option<&ScriptInput> {
-        self.script.as_ref()
-    }
 }
 
 impl Capture {
@@ -165,7 +187,7 @@ impl Capture {
     /// Spawn the worker thread and block until the script reports loaded (or
     /// the start timeout elapses, or frida rejects something).
     pub fn start<H: Handler>(self, handler: H) -> Result<CaptureHandle> {
-        let (stop_tx, stop_rx) = mpsc::channel::<()>();
+        let (cmd_tx, cmd_rx) = mpsc::channel::<WorkerCmd>();
         let (ready_tx, ready_rx) = mpsc::sync_channel::<Result<u32>>(1);
         let cfg = self.cfg;
         let start_timeout = cfg.start_timeout;
@@ -174,7 +196,7 @@ impl Capture {
 
         let worker = thread::Builder::new()
             .name("fridge-worker".into())
-            .spawn(move || worker_loop(cfg, handler_for_worker, stop_rx, ready_tx))
+            .spawn(move || worker_loop(cfg, handler_for_worker, cmd_rx, ready_tx))
             .map_err(|e| Error::Frida(format!("spawn worker: {e}")))?;
 
         let pid = match ready_rx.recv_timeout(start_timeout) {
@@ -182,7 +204,7 @@ impl Capture {
             Err(_) => return Err(Error::StartTimeout(start_timeout)),
         };
 
-        Ok(CaptureHandle::new(worker, stop_tx, pid))
+        Ok(CaptureHandle::new(worker, cmd_tx, pid))
     }
 }
 
@@ -197,7 +219,7 @@ mod tests {
         let p = tmp.path().join("hook.js");
         std::fs::write(&p, b"console.log('hi');").unwrap();
         let b = Capture::builder().script_from_disk(&p).unwrap();
-        match b.script_input().unwrap() {
+        match b.script.as_ref().unwrap() {
             ScriptInput::Source(s) => assert_eq!(s, "console.log('hi');"),
             ScriptInput::Bytes(_) => panic!(".js should land as Source"),
         }
@@ -211,7 +233,7 @@ mod tests {
         let payload: Vec<u8> = vec![0xDE, 0xAD, 0xBE, 0xEF, 0xFF];
         std::fs::write(&p, &payload).unwrap();
         let b = Capture::builder().script_from_disk(&p).unwrap();
-        match b.script_input().unwrap() {
+        match b.script.as_ref().unwrap() {
             ScriptInput::Bytes(bs) => assert_eq!(bs, &payload),
             ScriptInput::Source(_) => panic!(".bin should land as Bytes"),
         }
@@ -224,7 +246,7 @@ mod tests {
         let p = tmp.path().join("hook.qjsc");
         std::fs::write(&p, b"\x01\x02\x03").unwrap();
         let b = Capture::builder().script_from_disk(&p).unwrap();
-        assert!(matches!(b.script_input(), Some(ScriptInput::Bytes(_))));
+        assert!(matches!(b.script.as_ref(), Some(ScriptInput::Bytes(_))));
     }
 
     #[test]
@@ -258,7 +280,7 @@ mod tests {
             .script("before")
             .script_from_disk(&p)
             .unwrap();
-        match b.script_input().unwrap() {
+        match b.script.as_ref().unwrap() {
             ScriptInput::Source(s) => assert_eq!(s, "after"),
             _ => panic!(),
         }

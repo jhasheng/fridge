@@ -60,42 +60,31 @@ The raw `frida` crate is faithful to frida-core, which means:
 - Normalizes script events into an `Event` enum: any `send()` from JS lands
   in `Event::Send { payload: Value }` regardless of the inner shape.
 
-## ⚠️ Setup — required patch
+## Setup
 
-`fridge`'s `frida` dep on crates.io is **0.17.2 with unfixed UB**
-([frida-rust#189](https://github.com/frida/frida-rust/issues/189)). This
-crate's own build redirects to a [patched fork](https://github.com/jhasheng/frida-rust/tree/fridge-fixes)
-via `[patch.crates-io]`, but **that redirect only applies to the workspace
-root being built** — downstream consumers have to add the same redirect in
-their own workspace root, otherwise `Arc<Mutex<_>>` handlers read garbage
-memory and `script.load()` deadlocks on synchronous `send()`.
-
-In your project's **workspace root** `Cargo.toml`:
-
-```toml
-[dependencies]
-fridge = "0.1"
-
-[patch.crates-io]
-frida = { git = "https://github.com/jhasheng/frida-rust.git", rev = "6a92b72" }
-```
-
-The pinned `frida-rust` rev carries two extra commits on top of 0.17.2:
-
-1. The fix for frida-rust#189 (ScriptHandler `user_data` UB).
-2. `Session::compile_script` + `Session::create_script_from_bytes`
-   (bytecode loading — fridge depends on both).
-
-Once these patches land upstream and a new `frida` release ships, this
-`[patch]` block goes away and `fridge = "0.1"` works standalone.
-
-If you'd rather skip the patch line, depend on `fridge` via git instead —
-the redirect is baked into this repo's own `Cargo.toml`:
+Depend on `fridge` via git for now (not yet on crates.io):
 
 ```toml
 [dependencies]
 fridge = { git = "https://github.com/jhasheng/fridge.git" }
 ```
+
+`fridge` resolves the `frida` crate transitively from a [patched
+fork](https://github.com/jhasheng/frida-rust/tree/dev), so downstream
+consumers do **not** need their own `[patch.crates-io]` entry. The fork
+carries three patches on top of `frida` 0.17.2:
+
+1. Fix for [frida-rust#189](https://github.com/frida/frida-rust/issues/189)
+   (ScriptHandler `user_data` UB — without it, `Arc<Mutex<_>>` handlers
+   read garbage memory and `script.load()` deadlocks on synchronous
+   `send()`).
+2. `Session::compile_script` + `Session::create_script_from_bytes`
+   (bytecode loading — fridge depends on both).
+3. `Scope::Full` + `Process::get_parameters` (used by
+   `Target::MainByName` for Chromium-style multi-process apps).
+
+When these patches land upstream and a new `frida` release ships, fridge
+will switch to the crates.io release and this note goes away.
 
 ## Targets
 
@@ -138,6 +127,84 @@ Caveats:
   load with (frida defaults to QJS).
 - It's mild obfuscation, not encryption. V8/QJS bytecode is reversible — it
   raises the floor, not the ceiling.
+
+## Loading scripts from a file path
+
+If your config holds a path and you don't want to repeat the
+read+extension-dispatch boilerplate, [`CaptureBuilder::script_from_disk`]
+does it for you:
+
+```rust
+Capture::builder()
+    .target(Target::name("Weixin.exe"))
+    .script_from_disk("hook.bin")?     // .js → source, anything else → bytecode
+    .start(handler)?;
+```
+
+The only stable rule is "is it `.js` or not" — `.bin`, `.qjsc`, no
+extension, all land as bytes. Whitelisting `.js` because UTF-8 sniffing
+would misclassify any 7-bit-ASCII bytecode.
+
+## Capture record/replay (`record` feature, default-on)
+
+The `record` module is a length-framed bincode capture format generic
+over any `Serialize`-able message type. Use it to dump frida events to
+disk and replay them later — no hand-rolled framing or magic-byte
+handling.
+
+```rust
+use fridge::record::{Writer, read_all, timestamped_path};
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize)]
+struct MyMsg { url: String, body: Vec<u8> }
+
+const TAG: [u8; 4] = *b"DEMO"; // pick 4 bytes from your crate name
+
+// Write
+let path = timestamped_path("captures".as_ref(), "cap", "bin");
+let mut w = Writer::<MyMsg>::create(path.clone(), TAG)?;
+w.append(&MyMsg { url: "/foo".into(), body: vec![1, 2, 3] })?;
+drop(w);
+
+// Read back
+let msgs: Vec<MyMsg> = read_all(&path, TAG)?;
+```
+
+The 4-byte caller tag isolates your captures from other fridge consumers
+that might share the same directory — cross-decoding errors out instead
+of silently producing garbage. File header layout:
+`MAGIC "FRGE" | u32 LE version | [u8; 4] tag` then framed entries.
+
+Writer flushes per append; reader tolerates a truncated trailing frame
+(interrupted writer).
+
+Turn off via `default-features = false` if you don't record — drops the
+`bincode` + `chrono` dependencies.
+
+## CLI
+
+With the `cli` feature on, the crate also ships a `fridge` binary
+that wraps the library — useful for quick attach sessions or for
+inspecting `record`-format capture files without writing Rust:
+
+```bash
+cargo install fridge --features cli
+# or, from this repo:
+cargo run --features cli -- attach --target Weixin.exe --script hook.js
+
+# Record a capture, then replay it later
+fridge attach --target Weixin.exe --script hook.js --record cap.bin
+fridge replay cap.bin
+```
+
+Events print as JSON lines on stdout. `replay` reads files written by
+`fridge attach --record` (CLI tag `FRGE`); captures written by other
+`fridge::record` consumers — e.g. an app using its own 4-byte tag —
+will error on the tag check, which is intentional.
+
+The `cli` feature implies `record` and pulls in `clap` + `ctrlc`. Pure
+library users (default features) don't compile the binary.
 
 ## Build requirements
 

@@ -37,24 +37,47 @@
 //! 3. **Builder ergonomics.** Pick a [`Target`] + [`DeviceSel`], hand over a
 //!    JS string, plug in a [`Handler`]. No `Frida::obtain` / `DeviceManager` /
 //!    `ScriptOption` boilerplate.
+//! 4. **Script source on disk.** [`CaptureBuilder::script_from_disk`] reads
+//!    the file and dispatches by extension — `.js` → source, anything else
+//!    → bytecode bytes — so callers don't repeat the read+route boilerplate.
+//! 5. **Capture record/replay** (feature `record`, default-on). The
+//!    [`record`] module is a length-framed bincode appender + reader,
+//!    generic over any `Serialize`-able message type — capture frida
+//!    messages to disk and read them back without rolling your own framing.
+//! 6. **Hot script reload.** [`CaptureHandle::reload_source`] /
+//!    [`CaptureHandle::reload_bytes`] / [`CaptureHandle::reload_from_disk`]
+//!    swap the script on a live session — no detach + reattach, no
+//!    [`Handler::on_started`] re-fire.
+//! 7. **Device + process discovery.** [`discover::devices`] /
+//!    [`discover::processes`] return owned snapshots you can hold across
+//!    threads, so callers don't have to manage `Frida::obtain` /
+//!    `DeviceManager` lifetimes themselves.
+//!
+//! # CLI
+//!
+//! With the `cli` feature on, the crate also ships a `fridge` binary
+//! (`cargo install fridge --features cli`) that wraps the library:
+//!
+//! ```text
+//! fridge attach --target Weixin.exe --script hook.js [--record cap.bin]
+//! fridge replay cap.bin
+//! ```
+//!
+//! Events print as JSON lines on stdout. `--record` writes them through
+//! `fridge::record::Writer<Event>` so `replay` can read them back.
 
-mod builder;
+mod capture;
+pub mod discover;
 mod error;
-mod event;
-mod handle;
-mod handler;
-mod target;
-mod worker;
+
+pub use capture::{
+    Capture, CaptureBuilder, CaptureHandle, DetachReason, DeviceSel, Event, Handler, LogLevel,
+    Message, Target,
+};
+pub use error::{Error, Result};
 
 #[cfg(feature = "record")]
 pub mod record;
-
-pub use builder::{Capture, CaptureBuilder};
-pub use error::{Error, Result};
-pub use event::{Event, LogLevel};
-pub use handle::CaptureHandle;
-pub use handler::{Handler, Message};
-pub use target::{DetachReason, DeviceSel, Target};
 
 /// Compile JS source to V8/QJS bytecode for later use with
 /// [`CaptureBuilder::script_bytes`].
@@ -70,7 +93,11 @@ pub fn compile_script(source: &str) -> Result<Vec<u8>> {
     let device = mgr.get_local_device()?;
     let session = device.attach(std::process::id())?;
     let mut opts = frida::ScriptOption::default();
-    let bytes = session.compile_script(source, &mut opts)?;
+    // Capture the result *before* detach so we can clean up
+    // unconditionally — `?` here would leak the session on a
+    // compile failure (frida-side resources kept open until the
+    // GObject is dropped, which `?` skips past).
+    let result = session.compile_script(source, &mut opts);
     let _ = session.detach();
-    Ok(bytes)
+    Ok(result?)
 }
