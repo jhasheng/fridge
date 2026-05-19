@@ -44,6 +44,19 @@
 //!    [`record`] module is a length-framed bincode appender + reader,
 //!    generic over any `Serialize`-able message type — capture frida
 //!    messages to disk and read them back without rolling your own framing.
+//!
+//! # CLI
+//!
+//! With the `cli` feature on, the crate also ships a `fridge` binary
+//! (`cargo install fridge --features cli`) that wraps the library:
+//!
+//! ```text
+//! fridge attach --target Weixin.exe --script hook.js [--record cap.bin]
+//! fridge replay cap.bin
+//! ```
+//!
+//! Events print as JSON lines on stdout. `--record` writes them through
+//! `fridge::record::Writer<Event>` so `replay` can read them back.
 
 mod builder;
 mod error;

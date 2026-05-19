@@ -23,6 +23,11 @@ auto-download = ["frida/auto-download"]
 # Default-on for zero-config UX; off-by-default consumers (e.g. tauri
 # plugin layers that only forward events) can drop bincode by disabling.
 record = ["dep:bincode", "dep:chrono"]
+# The `fridge` binary (src/bin/fridge.rs) — attach + replay subcommands
+# over the library API. Off by default so pure-library users don't drag
+# in clap + ctrlc. Enable with `cargo install fridge --features cli` or
+# `cargo run --features cli -- attach ...`.
+cli = ["dep:clap", "dep:ctrlc", "record"]
 
 [dependencies]
 # Pulled directly from the jhasheng/frida-rust fork's `dev` branch. That fork carries:
@@ -54,6 +59,13 @@ bincode = { version = "2", features = ["serde"], optional = true }
 # default-features off keeps it minimal — only `clock` is needed.
 chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
 
+# Argument parser for the `fridge` binary under the `cli` feature.
+clap = { version = "4", features = ["derive"], optional = true }
+
+# Ctrl+C handling for `fridge attach` — let the user stop the capture
+# without killing the process and losing the in-flight recording flush.
+ctrlc = { version = "3", optional = true }
+
 [dev-dependencies]
 # `inspect` example
 anyhow = "1"
@@ -70,6 +82,14 @@ path = "examples/inspect.rs"
 [[example]]
 name = "raw_field"
 path = "examples/raw_field.rs"
+
+[[bin]]
+name = "fridge"
+path = "src/bin/fridge.rs"
+# Cargo would otherwise auto-build the bin on every `cargo build`, dragging
+# in clap + ctrlc for library-only users. required-features makes it a no-op
+# unless `--features cli` is on.
+required-features = ["cli"]
 
 [profile.release]
 opt-level = 3

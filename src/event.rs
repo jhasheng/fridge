@@ -11,11 +11,11 @@
 //! consumer can `.get("url").and_then(|v| v.as_str())` etc. without
 //! re-parsing themselves.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Normalized script event.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Event {
     /// A `send(payload, data)` call from the JS side. `payload` is whatever
@@ -39,7 +39,7 @@ pub enum Event {
     Unknown(Value),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LogLevel {
     Info,

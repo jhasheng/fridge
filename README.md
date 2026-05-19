@@ -193,6 +193,30 @@ Writer flushes per append; reader tolerates a truncated trailing frame
 Turn off via `default-features = false` if you don't record — drops the
 `bincode` + `chrono` dependencies.
 
+## CLI
+
+With the `cli` feature on, the crate also ships a `fridge` binary
+that wraps the library — useful for quick attach sessions or for
+inspecting `record`-format capture files without writing Rust:
+
+```bash
+cargo install fridge --features cli
+# or, from this repo:
+cargo run --features cli -- attach --target Weixin.exe --script hook.js
+
+# Record a capture, then replay it later
+fridge attach --target Weixin.exe --script hook.js --record cap.bin
+fridge replay cap.bin
+```
+
+Events print as JSON lines on stdout. `replay` reads files written by
+`fridge attach --record` (CLI tag `FRGE`); captures written by other
+`fridge::record` consumers — e.g. an app using its own 4-byte tag —
+will error on the tag check, which is intentional.
+
+The `cli` feature implies `record` and pulls in `clap` + `ctrlc`. Pure
+library users (default features) don't compile the binary.
+
 ## Build requirements
 
 - LLVM / `libclang.dll` on `LIBCLANG_PATH` (frida-sys uses bindgen at build).
